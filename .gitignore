@@ -1,0 +1,89 @@
+# ── Python Cache ──────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# ── Jupyter Notebooks ─────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Virtual Environments ──────────────────────
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# ── Distribution / Packaging ──────────────────
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ── Environment & Secrets ───────────────────────
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+.streamlit/secrets.toml
+
+# ── ML / Data Science artefacts ───────────────
+# Keep tracked: models/*.pkl, results/*.png, results/*.csv, results/*.txt
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+sentence_transformers_cache/
+huggingface_cache/
+.cache/huggingface/
+
+# Explicitly ensure required models and dataset files are tracked
+!models/*.pkl
+!dataset/*.csv
+!dataset/*.md
+!results/*.png
+!results/*.csv
+!results/*.txt
+
+# ── Logs & Temp ───────────────────────────────
+*.log
+logs/
+tmp/
+temp/
+
+# ── Tests & Coverage ──────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.cache
+
+# ── IDE & Editor ──────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Operating System ──────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
