@@ -394,41 +394,10 @@ DATASET_RECORDS = [
 
 
 def build_dataset_dataframe():
-    records = []
-    for idx, item in enumerate(DATASET_RECORDS, 1):
-        idiom_key, usage_type, sentence, context_desc = item
-        
-        if idiom_key != "none" and idiom_key in IDIOM_DICTIONARY:
-            idiom_meta = IDIOM_DICTIONARY[idiom_key]
-            meaning = idiom_meta["meaning"]
-            example = idiom_meta["example"]
-            idiom_name = idiom_meta["idiom"]
-        else:
-            meaning = "None / Literal non-idiomatic expression."
-            example = "N/A"
-            idiom_name = "none"
-
-        records.append({
-            "id": idx,
-            "sentence": sentence,
-            "idiom": idiom_name,
-            "meaning": meaning,
-            "usage_type": usage_type,
-            "context": context_desc,
-            "example": example
-        })
-    
-    df = pd.DataFrame(records)
-    return df
+    from build_multilingual_dataset import build_multilingual_dataset_dataframe
+    return build_multilingual_dataset_dataframe()
 
 
 if __name__ == "__main__":
-    df = build_dataset_dataframe()
-    os.makedirs(os.path.join(os.path.dirname(__file__), "..", "dataset"), exist_ok=True)
-    csv_path = os.path.join(os.path.dirname(__file__), "..", "dataset", "idioms.csv")
-    df.to_csv(csv_path, index=False)
-    print(f"Dataset successfully built with {len(df)} total samples.")
-    print("Class distribution:")
-    print(df['usage_type'].value_counts())
-    print("\nIdiom distribution:")
-    print(f"Total unique idioms: {df[df['idiom'] != 'none']['idiom'].nunique()}")
+    from build_multilingual_dataset import main as build_multilingual_main
+    build_multilingual_main()

@@ -1,81 +1,107 @@
 """
-Contextual Model Training Script: Sentence Transformer Embeddings + Logistic Regression Classifier
+Contextual Model Training Script: Multilingual Sentence Transformer + Logistic Regression
+Supports: English (en), Hindi (hi), and Marathi (mr)
+
+Model: 'paraphrase-multilingual-MiniLM-L12-v2'
+- Pretrained multilingual transformer architecture (XLM-RoBERTa / MiniLM)
+- Documented native support for 50+ languages including English, Hindi, and Marathi
+- Generates 384-dimensional dense contextual embeddings
+- Captures deep cross-lingual semantic dependencies and figurative vs. literal context
 
 Pipeline:
-1. Load dataset with stratified train/test split.
-2. Generate 384-dimensional dense contextual embeddings for the complete sentences using
-   the lightweight, high-performance 'all-MiniLM-L6-v2' pretrained transformer model.
-3. Train a multi-class Logistic Regression classifier with class balancing on the contextual embeddings.
-4. Evaluate performance on the test set.
-5. Save the trained contextual classifier artifact to models/contextual_model.pkl.
+1. Load benchmark dataset with leak-free stratified split on (Language x Class).
+2. Generate 384-dimensional dense contextual embeddings using 'paraphrase-multilingual-MiniLM-L12-v2'.
+3. Train calibrated Logistic Regression classifier on sentence embeddings.
+4. Evaluate performance on test set (Overall + Per-Language).
+5. Save contextual model artifact bundle to models/contextual_model.pkl.
 """
 
 import os
+import sys
 import joblib
 import numpy as np
+import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, accuracy_score
+from sklearn.metrics import classification_report, accuracy_score, f1_score
 
-from dataset_loader import get_train_test_split
+# Add src to sys.path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC_DIR = os.path.join(BASE_DIR, "src")
+MODELS_DIR = os.path.join(BASE_DIR, "models")
+if SRC_DIR not in sys.path:
+    sys.path.insert(0, SRC_DIR)
+
+from dataset_loader import get_train_val_test_split
 
 
-DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_MULTILINGUAL_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
 
-def get_sentence_embeddings(sentences, model_name=DEFAULT_EMBEDDING_MODEL, transformer_instance=None):
+def get_multilingual_embeddings(sentences, model_name=DEFAULT_MULTILINGUAL_MODEL, transformer_instance=None):
     """
-    Encode a list of sentences into dense contextual embeddings.
+    Encode a list of sentences into 384-dimensional dense contextual embeddings.
     """
     if transformer_instance is None:
         transformer_instance = SentenceTransformer(model_name)
-    
+
     embeddings = transformer_instance.encode(
         list(sentences),
-        batch_size=32,
-        show_progress_bar=False,
+        batch_size=64,
+        show_progress_bar=True,
         normalize_embeddings=True
     )
     return np.array(embeddings), transformer_instance
 
 
-def train_contextual_pipeline(save_dir: str = None, model_name: str = DEFAULT_EMBEDDING_MODEL):
-    if save_dir is None:
-        save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
-    os.makedirs(save_dir, exist_ok=True)
+def train_contextual_pipeline(models_dir: str = None, model_name: str = DEFAULT_MULTILINGUAL_MODEL):
+    if models_dir is None:
+        models_dir = MODELS_DIR
+    os.makedirs(models_dir, exist_ok=True)
 
-    print("=" * 60)
-    print(" TRAINING CONTEXTUAL MODEL: Sentence Transformer + Logistic Regression")
+    print("=" * 70)
+    print(" TRAINING CONTEXTUAL MODEL: Multilingual Sentence Transformer + LogReg")
     print(f" Pretrained Transformer: {model_name}")
-    print("=" * 60)
+    print(" Supported Languages: English, Hindi, Marathi")
+    print("=" * 70)
 
-    # 1. Load data
-    X_train_raw, X_test_raw, y_train_raw, y_test_raw, _, _ = get_train_test_split()
-    print(f"Loaded {len(X_train_raw)} training samples and {len(X_test_raw)} test samples.")
+    # 1. Load data using leak-free 70/15/15 stratified split
+    df_train, df_val, df_test = get_train_val_test_split(random_state=42)
+    print(f"Loaded {len(df_train)} training samples and {len(df_test)} test samples.")
+    print("Train language breakdown:", df_train['language'].value_counts().to_dict())
+    print("Test language breakdown: ", df_test['language'].value_counts().to_dict())
 
-    # 2. Load label encoder from models if available or create new
-    le_path = os.path.join(save_dir, "label_encoder.pkl")
+    # 2. Label Encoding (align with baseline label encoder)
+    le_path = os.path.join(models_dir, "label_encoder.pkl")
     if os.path.exists(le_path):
         label_encoder = joblib.load(le_path)
     else:
         from sklearn.preprocessing import LabelEncoder
         label_encoder = LabelEncoder()
-        label_encoder.fit(y_train_raw)
+        label_encoder.fit(df_train['usage_type'])
         joblib.dump(label_encoder, le_path)
 
-    y_train = label_encoder.transform(y_train_raw)
-    y_test = label_encoder.transform(y_test_raw)
+    y_train = label_encoder.transform(df_train['usage_type'])
+    y_test = label_encoder.transform(df_test['usage_type'])
+    print(f"Target Classes: {list(label_encoder.classes_)}")
 
-    # 3. Generate contextual embeddings
-    print("Generating contextual embeddings for training sentences...")
-    X_train_emb, transformer_model = get_sentence_embeddings(X_train_raw, model_name=model_name)
-    print(f"Generated train embeddings shape: {X_train_emb.shape}")
+    # 3. Generate Multilingual Sentence Transformer Embeddings
+    print("\nGenerating contextual embeddings for training sentences...")
+    X_train_emb, transformer_model = get_multilingual_embeddings(
+        df_train['sentence'],
+        model_name=model_name
+    )
+    print(f"Train embeddings shape: {X_train_emb.shape} (Dimension = {X_train_emb.shape[1]})")
 
-    print("Generating contextual embeddings for test sentences...")
-    X_test_emb, _ = get_sentence_embeddings(X_test_raw, transformer_instance=transformer_model)
-    print(f"Generated test embeddings shape: {X_test_emb.shape}")
+    print("\nGenerating contextual embeddings for test sentences...")
+    X_test_emb, _ = get_multilingual_embeddings(
+        df_test['sentence'],
+        model_name=model_name,
+        transformer_instance=transformer_model
+    )
+    print(f"Test embeddings shape: {X_test_emb.shape}")
 
-    # 4. Train classifier on contextual embeddings
+    # 4. Train Classifier on Embeddings
     contextual_clf = LogisticRegression(
         C=3.0,
         max_iter=1000,
@@ -84,28 +110,48 @@ def train_contextual_pipeline(save_dir: str = None, model_name: str = DEFAULT_EM
     )
     contextual_clf.fit(X_train_emb, y_train)
 
-    # 5. Evaluate on Test Set
+    # 5. Evaluate Performance
     y_pred_test = contextual_clf.predict(X_test_emb)
     test_acc = accuracy_score(y_test, y_pred_test)
-    print(f"\nContextual Model Test Accuracy: {test_acc:.4f} ({test_acc*100:.2f}%)")
-    print("\nClassification Report (Contextual Model on Test Set):")
-    print(classification_report(y_test, y_pred_test, target_names=label_encoder.classes_))
+    test_f1 = f1_score(y_test, y_pred_test, average='weighted')
+    macro_f1 = f1_score(y_test, y_pred_test, average='macro')
 
-    # 6. Save model bundle
+    print(f"\nContextual Model Test Accuracy: {test_acc:.4f} ({test_acc*100:.2f}%)")
+    print(f"Contextual Model Weighted F1:   {test_f1:.4f}")
+    print(f"Contextual Model Macro F1:      {macro_f1:.4f}")
+    print("\nOverall Classification Report:")
+    print(classification_report(y_test, y_pred_test, target_names=label_encoder.classes_, digits=4))
+
+    # Per-Language Breakdown
+    print("-" * 50)
+    print("Per-Language Contextual Model Accuracy:")
+    for lang in ['en', 'hi', 'mr']:
+        mask = (df_test['language'] == lang).values
+        if np.any(mask):
+            acc_lang = accuracy_score(y_test[mask], y_pred_test[mask])
+            f1_lang = f1_score(y_test[mask], y_pred_test[mask], average='weighted')
+            lang_name = {"en": "English", "hi": "Hindi", "mr": "Marathi"}.get(lang, lang)
+            print(f"  {lang_name} ({lang}): Accuracy = {acc_lang*100:.2f}%, F1 = {f1_lang:.4f} (N={np.sum(mask)})")
+    print("-" * 50)
+
+    # 6. Save Model Bundle
     bundle = {
         "model": contextual_clf,
         "embedding_model_name": model_name,
-        "classes": label_encoder.classes_
+        "classes": label_encoder.classes_,
+        "embedding_dimension": X_train_emb.shape[1],
+        "languages": ["en", "hi", "mr"]
     }
-    model_path = os.path.join(save_dir, "contextual_model.pkl")
+    model_path = os.path.join(models_dir, "contextual_model.pkl")
     joblib.dump(bundle, model_path)
-    print(f"Successfully saved Contextual Model bundle to: {model_path}")
-    print("=" * 60)
+    print(f"[OK] Saved Contextual Model Bundle to: {model_path}")
+    print("=" * 70)
 
     return {
         "model": contextual_clf,
-        "transformer_model": transformer_model,
-        "accuracy": test_acc
+        "embedding_model_name": model_name,
+        "accuracy": test_acc,
+        "f1": test_f1
     }
 
 

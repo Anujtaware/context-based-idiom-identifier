@@ -1,0 +1,4 @@
+Language Code,Language,Samples,Baseline Accuracy,Baseline F1,Contextual Accuracy,Contextual F1
+en,English,270,1.0,1.0,0.9963,0.9963
+hi,Hindi,270,1.0,1.0,1.0,1.0
+mr,Marathi,270,1.0,1.0,0.9963,0.9963

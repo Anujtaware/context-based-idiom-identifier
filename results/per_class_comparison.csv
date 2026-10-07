@@ -1,0 +1,4 @@
+Class,Support,Baseline Precision,Baseline Recall,Baseline F1,Contextual Precision,Contextual Recall,Contextual F1
+idiomatic,324,1.0,1.0,1.0,1.0,0.9969,0.9985
+literal,324,1.0,1.0,1.0,0.9969,0.9969,0.9969
+none,162,1.0,1.0,1.0,0.9939,1.0,0.9969

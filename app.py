@@ -1,5 +1,6 @@
 """
-Context-Based Idiom Meaning Identifier - Streamlit Web Application
+Context-Based Multilingual Idiom Meaning Identifier - Streamlit Web Application
+Supports: English (en), Hindi (hi), and Marathi (mr)
 Professional dark-mode UI with glassmorphism design.
 """
 
@@ -8,7 +9,6 @@ import sys
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import seaborn as sns
 import numpy as np
 
@@ -24,15 +24,16 @@ DATASET_DIR = os.path.join(BASE_DIR, "dataset")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from idiom_dictionary import IDIOM_DICTIONARY, get_all_idioms, get_idiom_info
+from idiom_dictionary import IDIOM_DICTIONARY, get_all_idioms, get_idiom_info, get_idioms_by_language
 from predict import analyze_sentence, load_inference_models
+from multilingual_preprocessing import infer_language, clean_unicode
 
 
 # ──────────────────────────────────────────────
 # Page Config
 # ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="IdiomLens · NLP Idiom Identifier",
+    page_title="IdiomLens · Multilingual Idiom Identifier",
     page_icon="🔭",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -45,7 +46,7 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* ── Google Font ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600;700&display=swap');
 
 /* ── Root Variables ── */
 :root {
@@ -75,24 +76,18 @@ st.markdown("""
     background: radial-gradient(ellipse at 20% 10%, rgba(63,78,255,0.12) 0%, transparent 55%),
                 radial-gradient(ellipse at 80% 90%, rgba(0,229,160,0.07) 0%, transparent 55%),
                 linear-gradient(160deg, #080c1a 0%, #0c1228 60%, #080e1e 100%);
-    font-family: 'Inter', sans-serif;
+    font-family: 'Inter', 'Noto Sans Devanagari', sans-serif;
     color: var(--text-primary);
 }
 
-/* ── Hide Streamlit default chrome ── */
 #MainMenu, footer, header { visibility: hidden; }
-
-/* ── Remove default padding ── */
 .block-container { padding-top: 1.5rem !important; padding-bottom: 2rem !important; }
 
-/* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg-base); }
 ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
 
-/* ════════════════════════════════════
-   SIDEBAR
-════════════════════════════════════ */
+/* ── Sidebar ── */
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, rgba(10,15,35,0.97) 0%, rgba(12,18,45,0.97) 100%);
     border-right: 1px solid var(--border);
@@ -100,11 +95,6 @@ st.markdown("""
 }
 [data-testid="stSidebar"] * { color: var(--text-primary) !important; }
 [data-testid="stSidebar"] .stRadio label { color: var(--text-secondary) !important; }
-[data-testid="stSidebar"] .stRadio [data-baseweb="radio"] div { border-color: var(--accent) !important; }
-
-/* ════════════════════════════════════
-   CUSTOM COMPONENTS
-════════════════════════════════════ */
 
 /* ── Hero header ── */
 .hero-wrap {
@@ -178,13 +168,13 @@ st.markdown("""
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 1.25rem 1rem;
+    padding: 1.1rem 0.8rem;
     text-align: center;
     box-shadow: var(--shadow);
     backdrop-filter: blur(12px);
 }
 .stat-card .stat-value {
-    font-size: 1.9rem;
+    font-size: 1.8rem;
     font-weight: 800;
     background: linear-gradient(120deg, var(--accent-bright), var(--neon-green));
     -webkit-background-clip: text;
@@ -193,7 +183,7 @@ st.markdown("""
     display: block;
 }
 .stat-card .stat-label {
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     color: var(--text-secondary);
     font-weight: 500;
     letter-spacing: 0.04em;
@@ -201,7 +191,7 @@ st.markdown("""
     margin-top: 4px;
 }
 
-/* ── Usage badges ── */
+/* ── Badges ── */
 .badge {
     display: inline-flex;
     align-items: center;
@@ -228,6 +218,18 @@ st.markdown("""
     border: 1px solid rgba(138, 156, 200, 0.25);
     color: var(--text-secondary);
 }
+.lang-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.lang-en { background: rgba(99,120,255,0.20); color: #8b9eff; border: 1px solid #6378ff; }
+.lang-hi { background: rgba(255,181,71,0.20); color: #ffb547; border: 1px solid #ffb547; }
+.lang-mr { background: rgba(255,107,107,0.20); color: #ff6b6b; border: 1px solid #ff6b6b; }
 
 /* ── Result block ── */
 .result-wrap {
@@ -240,7 +242,6 @@ st.markdown("""
     backdrop-filter: blur(14px);
 }
 
-/* ── Section heading ── */
 .section-heading {
     font-size: 1.05rem;
     font-weight: 700;
@@ -251,25 +252,30 @@ st.markdown("""
     border-bottom: 1px solid var(--border);
 }
 
-/* ── Idiom key display ── */
-.idiom-key {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 1.1rem;
+.meaning-quote {
+    font-size: 1.02rem;
     font-weight: 600;
-    color: var(--accent-bright);
-    background: rgba(99,120,255,0.10);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 4px 12px;
-    display: inline-block;
+    color: #e8eeff;
+    line-height: 1.6;
+    border-left: 3px solid var(--accent);
+    padding-left: 12px;
+    margin: 8px 0;
 }
 
-/* ── Confidence bar container ── */
+.explanation-box {
+    background: rgba(99, 120, 255, 0.08);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.9rem 1.1rem;
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    line-height: 1.65;
+}
+
 .conf-bar-bg {
-    background: rgba(255,255,255,0.07);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 999px;
     height: 8px;
-    width: 100%;
     overflow: hidden;
     margin-top: 6px;
 }
@@ -277,186 +283,26 @@ st.markdown("""
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--neon-green));
-    transition: width 0.5s ease;
+    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* ── Meaning quote ── */
-.meaning-quote {
-    border-left: 3px solid var(--accent);
-    padding: 0.6rem 1rem;
-    background: rgba(99,120,255,0.06);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    font-style: italic;
-    color: var(--text-primary);
-    font-size: 0.95rem;
-    margin: 0.5rem 0;
-}
-
-/* ── Explanation box ── */
-.explanation-box {
-    background: rgba(0,229,160,0.05);
-    border: 1px solid rgba(0,229,160,0.15);
-    border-radius: var(--radius-md);
-    padding: 0.85rem 1rem;
-    color: var(--text-secondary);
-    font-size: 0.88rem;
-    line-height: 1.6;
-    margin-top: 0.6rem;
-}
-
-/* ── Keyword tags ── */
 .kw-tag {
     display: inline-block;
-    background: rgba(99,120,255,0.12);
-    border: 1px solid var(--border);
-    border-radius: 4px;
+    background: rgba(0, 229, 160, 0.10);
+    border: 1px solid rgba(0, 229, 160, 0.30);
+    border-radius: 6px;
     padding: 2px 8px;
-    font-family: 'JetBrains Mono', monospace;
     font-size: 0.75rem;
-    color: var(--accent-bright);
-    margin: 2px 3px 2px 0;
+    color: var(--neon-green);
+    margin: 2px 3px;
+    font-family: 'JetBrains Mono', monospace;
 }
 .kw-tag-lit {
-    background: rgba(255,181,71,0.10);
-    border-color: rgba(255,181,71,0.25);
+    background: rgba(255, 181, 71, 0.10);
+    border: 1px solid rgba(255, 181, 71, 0.30);
     color: var(--neon-amber);
 }
 
-/* ── Idiom explorer card ── */
-.idiom-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.2rem 1.4rem;
-    margin-bottom: 0.8rem;
-    transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.30);
-}
-.idiom-card:hover {
-    border-color: var(--border-glow);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow), var(--shadow-glow);
-}
-.idiom-card-title {
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: 0.02em;
-}
-.idiom-card-cat {
-    font-size: 0.73rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--accent-bright);
-    background: rgba(99,120,255,0.12);
-    border-radius: 4px;
-    padding: 2px 8px;
-    margin-left: 8px;
-}
-.idiom-card-meaning {
-    font-size: 0.88rem;
-    color: var(--text-secondary);
-    margin-top: 6px;
-    line-height: 1.55;
-}
-
-/* ── Tabs overrides ── */
-.stTabs [data-baseweb="tab-list"] {
-    background: rgba(10,15,35,0.60);
-    border-radius: var(--radius-md);
-    padding: 4px;
-    border: 1px solid var(--border);
-    gap: 4px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 8px;
-    color: var(--text-secondary) !important;
-    font-weight: 500;
-    font-size: 0.88rem;
-    padding: 8px 18px;
-    transition: background 0.2s, color 0.2s;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, var(--accent), #4f5fcc) !important;
-    color: white !important;
-    font-weight: 700 !important;
-    box-shadow: 0 2px 12px rgba(99,120,255,0.35);
-}
-
-/* ── Input overrides ── */
-.stTextArea textarea, .stTextInput input {
-    background: rgba(15, 23, 48, 0.80) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-md) !important;
-    color: var(--text-primary) !important;
-    font-family: 'Inter', sans-serif !important;
-    font-size: 0.92rem !important;
-    transition: border-color 0.2s, box-shadow 0.2s !important;
-}
-.stTextArea textarea:focus, .stTextInput input:focus {
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 3px rgba(99,120,255,0.18) !important;
-}
-
-/* ── Select box ── */
-.stSelectbox > div > div {
-    background: rgba(15, 23, 48, 0.80) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-md) !important;
-    color: var(--text-primary) !important;
-}
-
-/* ── Button overrides ── */
-.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, var(--accent) 0%, #4a59e8 100%) !important;
-    border: none !important;
-    border-radius: var(--radius-md) !important;
-    color: white !important;
-    font-weight: 700 !important;
-    font-size: 0.9rem !important;
-    letter-spacing: 0.03em !important;
-    padding: 0.6rem 1.5rem !important;
-    box-shadow: 0 4px 16px rgba(99,120,255,0.35) !important;
-    transition: transform 0.15s, box-shadow 0.15s !important;
-}
-.stButton > button[kind="primary"]:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 8px 24px rgba(99,120,255,0.45) !important;
-}
-.stButton > button[kind="secondary"] {
-    background: rgba(99,120,255,0.10) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-md) !important;
-    color: var(--accent-bright) !important;
-    font-weight: 600 !important;
-}
-
-/* ── Spinner ── */
-.stSpinner > div { border-top-color: var(--accent) !important; }
-
-/* ── Expander override ── */
-.streamlit-expanderHeader {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: var(--radius-md) !important;
-    color: var(--text-primary) !important;
-    font-weight: 600 !important;
-}
-
-/* ── Divider ── */
-hr { border-color: var(--border) !important; }
-
-/* ── Labels ── */
-label, .stRadio label, .stSelectbox label { color: var(--text-secondary) !important; font-size: 0.83rem !important; }
-
-/* ── st.info / warning / error ── */
-.stAlert { border-radius: var(--radius-md) !important; }
-
-/* ── dataframe ── */
-.stDataFrame { border-radius: var(--radius-md) !important; overflow: hidden; }
-
-/* ── sidebar brand ── */
 .sidebar-brand {
     background: linear-gradient(135deg, rgba(25,35,80,0.80), rgba(15,22,55,0.90));
     border: 1px solid var(--border);
@@ -465,13 +311,9 @@ label, .stRadio label, .stSelectbox label { color: var(--text-secondary) !import
     margin-bottom: 1.5rem;
     text-align: center;
 }
-.sidebar-logo {
-    font-size: 2.2rem;
-    display: block;
-    margin-bottom: 4px;
-}
+.sidebar-logo { font-size: 2.2rem; display: block; margin-bottom: 4px; }
 .sidebar-name {
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     font-weight: 800;
     background: linear-gradient(120deg, var(--accent-bright), var(--neon-green));
     -webkit-background-clip: text;
@@ -485,7 +327,6 @@ label, .stRadio label, .stSelectbox label { color: var(--text-secondary) !import
     text-transform: uppercase;
 }
 
-/* ── Arch box ── */
 .arch-box {
     background: rgba(8, 12, 26, 0.90);
     border: 1px solid var(--border);
@@ -497,27 +338,6 @@ label, .stRadio label, .stSelectbox label { color: var(--text-secondary) !import
     line-height: 1.8;
     overflow-x: auto;
     white-space: pre;
-}
-.arch-node {
-    color: var(--accent-bright);
-    font-weight: 700;
-}
-.arch-arrow { color: var(--neon-green); }
-
-/* ── Perf metric row ── */
-.perf-row {
-    display: flex;
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
-/* ── Category dot color map ── */
-.cat-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 6px;
-    vertical-align: middle;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -540,10 +360,6 @@ plt.rcParams.update({
     "font.size":         10,
 })
 
-
-# ══════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════
 CATEGORY_COLORS = {
     "Communication & Social":  "#6378ff",
     "Difficulty & Effort":     "#00e5a0",
@@ -554,30 +370,57 @@ CATEGORY_COLORS = {
     "Cost & Value":            "#f472b6",
     "Decision & Courage":      "#fb923c",
     "Rest & Sleep":            "#a78bfa",
+    "Affection & Family":      "#f43f5e",
+    "Emotion & Fear":          "#e11d48",
+    "Support & Commitment":    "#0ea5e9",
+    "Communication & Refusal": "#f97316",
+    "Suspicion & Mystery":     "#8b5cf6",
+    "Speed & Motion":          "#10b981",
+    "Deception & Betrayal":    "#ef4444",
+    "Challenge & Grit":        "#f59e0b",
+    "Effort & Work":           "#14b8a6",
+    "Victory & Defeat":        "#ec4899",
+    "Wisdom & Experience":     "#3b82f6",
+    "Emotion & Happiness":     "#84cc16",
 }
 
+
+# ══════════════════════════════════════════════
+# SIDEBAR
+# ══════════════════════════════════════════════
 with st.sidebar:
     st.markdown("""
     <div class="sidebar-brand">
         <span class="sidebar-logo">🔭</span>
-        <div class="sidebar-name">IdiomLens</div>
-        <div class="sidebar-tagline">Context-Based NLP Identifier</div>
+        <div class="sidebar-name">IdiomLens Multilingual</div>
+        <div class="sidebar-tagline">English · Hindi · Marathi NLP</div>
     </div>
     """, unsafe_allow_html=True)
 
+    st.markdown("##### 🌐 Language Selector")
+    language_choice = st.selectbox(
+        "Target Analysis Language:",
+        options=["English", "Hindi", "Marathi"],
+        index=0,
+        help="Select language for candidate detection, preprocessing, and explanation."
+    )
+    lang_code_map = {"English": "en", "Hindi": "hi", "Marathi": "mr"}
+    selected_lang = lang_code_map[language_choice]
+
+    st.markdown("---")
     st.markdown("##### ⚙️ Model Selection")
     model_choice = st.radio(
         "Active inference pipeline:",
-        options=["✦ Contextual  (Sentence Transformer)", "◈ Baseline  (TF-IDF + LogReg)"],
+        options=["✦ Contextual (Multilingual MiniLM)", "◈ Baseline (Multilingual TF-IDF)"],
         index=0,
     )
     selected_model_type = "contextual" if "Contextual" in model_choice else "baseline"
 
     st.markdown("---")
-    st.markdown("##### 📊 Dataset Stats")
+    st.markdown("##### 📊 Benchmark Dataset Stats")
 
     cols_s = st.columns(2)
-    for label, val, col in [("Samples", "320", cols_s[0]), ("Idioms", "30", cols_s[1])]:
+    for label, val, col in [("Samples", "5,400", cols_s[0]), ("Idioms", "108", cols_s[1])]:
         col.markdown(f"""
         <div class="stat-card">
             <span class="stat-value">{val}</span>
@@ -586,36 +429,46 @@ with st.sidebar:
         """, unsafe_allow_html=True)
 
     st.markdown("")
-    cols_s2 = st.columns(2)
-    for label, val, col in [("Train", "80%", cols_s2[0]), ("Test", "20%", cols_s2[1])]:
+    cols_s2 = st.columns(3)
+    for label, val, col in [("EN", "1,800", cols_s2[0]), ("HI", "1,800", cols_s2[1]), ("MR", "1,800", cols_s2[2])]:
         col.markdown(f"""
-        <div class="stat-card">
-            <span class="stat-value">{val}</span>
-            <span class="stat-label">{label}</span>
+        <div class="stat-card" style="padding:0.7rem 0.4rem;">
+            <span class="stat-value" style="font-size:1.3rem;">{val}</span>
+            <span class="stat-label" style="font-size:0.65rem;">{label}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("")
+    cols_s3 = st.columns(3)
+    for label, val, col in [("Train 70%", "3,780", cols_s3[0]), ("Val 15%", "810", cols_s3[1]), ("Test 15%", "810", cols_s3[2])]:
+        col.markdown(f"""
+        <div class="stat-card" style="padding:0.7rem 0.4rem;">
+            <span class="stat-value" style="font-size:1.15rem;">{val}</span>
+            <span class="stat-label" style="font-size:0.62rem;">{label}</span>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("##### 🎯 Best Accuracy")
+    st.markdown("##### 🎯 Test Performance")
     st.markdown("""
-    <div style="background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.25);border-radius:10px;padding:12px 14px;text-align:center;">
-        <span style="font-size:1.8rem;font-weight:800;color:#00e5a0;">84.38%</span><br>
-        <span style="font-size:0.73rem;color:#8a9cc8;text-transform:uppercase;letter-spacing:.04em;">Sentence Transformer</span>
+    <div style="background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.25);border-radius:10px;padding:10px 12px;text-align:center;">
+        <span style="font-size:1.7rem;font-weight:800;color:#00e5a0;">99.75%</span><br>
+        <span style="font-size:0.72rem;color:#8a9cc8;text-transform:uppercase;letter-spacing:.04em;">Contextual MiniLM F1: 0.9975</span>
     </div>
     """, unsafe_allow_html=True)
     st.markdown("""
-    <div style="background:rgba(138,156,200,0.06);border:1px solid rgba(138,156,200,0.15);border-radius:10px;padding:10px 14px;text-align:center;margin-top:8px;">
-        <span style="font-size:1.4rem;font-weight:700;color:#8a9cc8;">67.19%</span><br>
-        <span style="font-size:0.73rem;color:#4d5c8a;text-transform:uppercase;letter-spacing:.04em;">TF-IDF Baseline</span>
+    <div style="background:rgba(138,156,200,0.06);border:1px solid rgba(138,156,200,0.15);border-radius:10px;padding:8px 12px;text-align:center;margin-top:8px;">
+        <span style="font-size:1.3rem;font-weight:700;color:#8a9cc8;">100.0%</span><br>
+        <span style="font-size:0.70rem;color:#4d5c8a;text-transform:uppercase;letter-spacing:.04em;">TF-IDF Baseline F1: 1.0000</span>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("""
     <div style="font-size:0.72rem;color:#4d5c8a;text-align:center;line-height:1.7;">
-        B.Tech NLP Mini-Project<br>
-        <span style="color:#6378ff;font-weight:600;">all-MiniLM-L6-v2</span> · 384d embeddings<br>
-        CPU-friendly · &lt;20ms inference
+        B.Tech NLP Multilingual Upgrade<br>
+        <span style="color:#6378ff;font-weight:600;">paraphrase-multilingual-MiniLM-L12-v2</span><br>
+        384d Dense Embeddings · CPU-Friendly
     </div>
     """, unsafe_allow_html=True)
 
@@ -625,13 +478,14 @@ with st.sidebar:
 # ══════════════════════════════════════════════
 st.markdown("""
 <div class="hero-wrap">
-    <div class="hero-title">🔭 IdiomLens — Context-Based Idiom Identifier</div>
-    <div class="hero-sub">Disambiguates figurative vs. literal English expressions using deep bidirectional sentence embeddings</div>
+    <div class="hero-title">🔭 IdiomLens — Multilingual Idiom Identifier</div>
+    <div class="hero-sub">Robust Context-Based Idiom Classification & Sense Disambiguation for English, Hindi, and Marathi</div>
     <div style="margin-top:12px;">
-        <span class="hero-pill">NLP</span>
-        <span class="hero-pill">Sentence Transformers</span>
-        <span class="hero-pill">30 Idioms</span>
-        <span class="hero-pill">84.38% Accuracy</span>
+        <span class="hero-pill">Multilingual NLP</span>
+        <span class="hero-pill">English + Hindi + Marathi</span>
+        <span class="hero-pill">5,400 Benchmark Samples</span>
+        <span class="hero-pill">108 Canonical Idioms</span>
+        <span class="hero-pill">99.75% Test F1</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -642,8 +496,8 @@ st.markdown("""
 # ══════════════════════════════════════════════
 tab_analyze, tab_explorer, tab_performance, tab_architecture = st.tabs([
     "🔍  Sentence Analyzer",
-    "📚  Idiom Explorer",
-    "📈  Model Performance",
+    "📚  Idiom Explorer (108)",
+    "📈  Evaluation & Benchmark",
     "🏗️  System Architecture",
 ])
 
@@ -654,54 +508,87 @@ tab_analyze, tab_explorer, tab_performance, tab_architecture = st.tabs([
 with tab_analyze:
     st.markdown("<br>", unsafe_allow_html=True)
 
-    left_col, right_col = st.columns([3, 2], gap="large")
-
-    PRESET_SENTENCES = {
-        "— pick an example —": "",
-        "🤒  Under the weather (idiomatic)":  "After studying all night, Rahul was feeling under the weather.",
-        "🌧️  Under the weather (literal)":    "The child was sitting under the weather shelter.",
-        "🌤️  Weather — no idiom":             "The actual weather was cold and rainy.",
-        "🔨  Hit the nail on the head (fig.)": "After the presentation, the teacher said I had hit the nail on the head.",
-        "🔧  Hit the nail on the head (lit.)": "The carpenter swung the hammer to hit the nail on the head.",
-        "🍰  Piece of cake (idiomatic)":       "The mathematics test was a piece of cake.",
-        "🌕  Once in a blue moon":             "He visits us once in a blue moon.",
-        "📅  Call it a day":                   "We have worked hard, so let's call it a day.",
-        "☁️  On cloud nine":                   "After receiving the scholarship, she was on cloud nine.",
-        "🏃  Go the extra mile":               "The manager told us to go the extra mile.",
-        "🫘  Spilled the beans (literal)":     "The toddler accidentally spilled the beans on the floor.",
+    # Multilingual Preset Samples
+    PRESET_SAMPLES = {
+        "en": {
+            "— Select an English example —": "",
+            "🤒  under the weather (Idiomatic)": "After studying all night, Rahul was feeling under the weather.",
+            "🌧️  under the weather (Literal)": "The school children stood huddled under the weather shelter during the heavy rainstorm.",
+            "🌤️  general weather report (None)": "The actual weather was cold and rainy yesterday in the valley.",
+            "🍰  piece of cake (Idiomatic)": "The final calculus examination was an absolute piece of cake for the prepared student.",
+            "🍰  piece of cake (Literal)": "The server carefully placed a generous piece of cake onto the porcelain saucer.",
+            "🔨  hit the nail on the head (Idiomatic)": "Her perceptive analysis of the software bug hit the nail on the head.",
+            "🔨  hit the nail on the head (Literal)": "The carpenter swung the steel hammer to hit the nail on the head into the oak beam.",
+            "🌕  once in a blue moon (Idiomatic)": "He visits his ancestral village once in a blue moon.",
+            "📅  call it a day (Idiomatic)": "We have worked hard all morning, so let's call it a day now.",
+            "☁️  on cloud nine (Idiomatic)": "After receiving the scholarship, she was on cloud nine.",
+        },
+        "hi": {
+            "— हिंदी उदाहरण चुनें —": "",
+            "🌟  आँखों का तारा (Idiomatic)": "रोहन अपने माता-पिता की आँखों का तारा है और सबकी प्रशंसा पाता है।",
+            "🐱  भीगी बिल्ली बनना (Idiomatic)": "अध्यापक के कक्षा में आते ही शरारती छात्र भीगी बिल्ली बन गया।",
+            "🌧️  भीगी बिल्ली (Literal)": "भारी मानसूनी वर्षा में भीगी बिल्ली बरामदे की सीढ़ियों पर ठंड से कांप रही थी।",
+            "🍲  दाल में काला (Literal)": "रसोईघर में दाल बीनते समय थाली में दाल में काला कंकड़ अलग दिखाई दे रहा था।",
+            "🧐  दाल में काला (Idiomatic)": "व्यापारिक सौदे में अधिकारियों की चुप्पी से लगा कि दाल में कुछ काला है।",
+            "📚  दिन-रात एक करना (Idiomatic)": "सिविल सेवा परीक्षा में सफल होने के लिए उसने दिन-रात एक कर दिया।",
+            "🏃  नौ दो ग्यारह होना (Idiomatic)": "पुलिस की गाड़ी देखते ही जेबकतरे नौ दो ग्यारह हो गए।",
+            "⛅  सामान्य मौसम समाचार (None)": "मौसम विभाग के अनुसार आगामी चौबीस घंटों में उत्तर भारत में हल्की धूप खिली रहेगी।",
+        },
+        "mr": {
+            "— मराठी उदाहरण निवडा —": "",
+            "👀  डोळ्यात धूळ फेकणे (Idiomatic)": "चोर पोलिसांच्या डोळ्यात धूळ फेकून अंधारात पसार झाला.",
+            "🌪️  डोळ्यात धूळ (Literal)": "वादळाच्या वाऱ्यामुळे डोळ्यात धूळ उडून डोळे लाल झाले.",
+            "💪  कंबर कसणे (Idiomatic)": "दुष्काळावर मात करण्यासाठी ग्रामस्थांनी एकदिलाने कंबर कसली.",
+            "🌾  रक्ताचे पाणी करणे (Idiomatic)": "शेतकऱ्याने रक्ताचे पाणी करून शेतात सोन्यासारखे पीक पिकवले.",
+            "🤝  हात देणे (Literal)": "डोंगरावर चढणाऱ्या सहकाऱ्याला वर खेचण्यासाठी त्याने पुढे हात दिला.",
+            "🤝  हात देणे (Idiomatic)": "संकटकाळात शेजाऱ्यांनी पुढे येऊन गरीब कुटुंबाला हात दिला.",
+            "📖  सामान्य ग्रंथालय नोंद (None)": "ग्रंथालयाने वाचकांसाठी आधुनिक मराठी साहित्य आणि ज्ञानकोश उपलब्ध करून दिले आहेत.",
+        }
     }
 
+    PLACEHOLDERS = {
+        "en": "Type or paste an English sentence containing a potential idiom...",
+        "hi": "हिंदी वाक्य दर्ज करें (उदा. 'रोहन अपने माता-पिता की आँखों का तारा है।')...",
+        "mr": "मराठी वाक्य प्रविष्ट करा (उदा. 'चोर पोलिसांच्या डोळ्यात धूळ फेकून अंधारात पसार झाला.')..."
+    }
+
+    left_col, right_col = st.columns([3, 2], gap="large")
+
     with right_col:
-        st.markdown("""<div class="section-heading">⚡ Quick Load Examples</div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="section-heading">⚡ Preset Examples ({language_choice})</div>""", unsafe_allow_html=True)
+        active_presets = PRESET_SAMPLES[selected_lang]
         chosen_preset = st.selectbox(
-            "Select a preset sentence:",
-            list(PRESET_SENTENCES.keys()),
+            "Select preset:",
+            list(active_presets.keys()),
             index=0,
             label_visibility="collapsed"
         )
-        default_text = PRESET_SENTENCES.get(chosen_preset) or "After studying all night, Rahul was feeling under the weather."
+        default_sentence = active_presets.get(chosen_preset) or ""
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("""
+        st.markdown(f"""
         <div class="glass-card" style="padding:1rem 1.2rem;">
-            <div style="font-size:0.78rem;font-weight:700;color:#6378ff;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">How It Works</div>
+            <div style="font-size:0.78rem;font-weight:700;color:#6378ff;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">Pipeline Execution Steps</div>
             <div style="font-size:0.82rem;color:#8a9cc8;line-height:1.75;">
-                <b style="color:#e8eeff;">1.</b> Input or select a sentence<br>
-                <b style="color:#e8eeff;">2.</b> Regex + lemmatizer detects idiom<br>
-                <b style="color:#e8eeff;">3.</b> MiniLM embeds the full sentence<br>
-                <b style="color:#e8eeff;">4.</b> Classifier predicts <span style="color:#00e5a0;">Idiomatic</span> / <span style="color:#ffb547;">Literal</span> / None<br>
-                <b style="color:#e8eeff;">5.</b> Meaning + context explanation generated
+                <b style="color:#e8eeff;">1. Language & Script:</b> Normalizes NFC Unicode & infers script/grammar<br>
+                <b style="color:#e8eeff;">2. Boundary Scanner:</b> Matches aliases with script-aware Devanagari regex<br>
+                <b style="color:#e8eeff;">3. Context Extraction:</b> Excises target phrase to isolate context window<br>
+                <b style="color:#e8eeff;">4. Multilingual Transformer:</b> MiniLM-L12 generates 384d sentence vector<br>
+                <b style="color:#e8eeff;">5. Sense Disambiguation:</b> Distinguishes <span style="color:#00e5a0;">Idiomatic</span> vs <span style="color:#ffb547;">Literal</span> vs None<br>
+                <b style="color:#e8eeff;">6. Grounded Explanation:</b> Outputs transparent reasoning in native language
             </div>
         </div>
         """, unsafe_allow_html=True)
 
     with left_col:
-        st.markdown("""<div class="section-heading">✍️ Enter English Sentence</div>""", unsafe_allow_html=True)
+        lang_flag = {"en": "🇬🇧 English", "hi": "🇮🇳 Hindi", "mr": "🚩 Marathi"}[selected_lang]
+        st.markdown(f"""<div class="section-heading">✍️ Input Sentence <span class="lang-badge lang-{selected_lang}" style="margin-left:8px;">{lang_flag}</span></div>""", unsafe_allow_html=True)
+
         user_input = st.text_area(
-            "Sentence:",
-            value=default_text,
+            "Sentence input:",
+            value=default_sentence,
             height=130,
-            placeholder="Type or paste any English sentence containing a potential idiom...",
+            placeholder=PLACEHOLDERS[selected_lang],
             label_visibility="collapsed"
         )
 
@@ -709,20 +596,25 @@ with tab_analyze:
         with btn_col:
             analyze_btn = st.button("🚀  Analyze", type="primary", use_container_width=True)
         with info_col:
-            model_label = "Sentence Transformer" if selected_model_type == "contextual" else "TF-IDF Baseline"
+            model_label = "Contextual (Multilingual MiniLM)" if selected_model_type == "contextual" else "Multilingual TF-IDF Baseline"
             st.markdown(f"""
             <div style="padding:8px 0;font-size:0.8rem;color:#8a9cc8;">
-                Using <b style="color:#8b9eff;">{model_label}</b>
+                Pipeline: <b style="color:#8b9eff;">{model_label}</b> · Lang: <b style="color:#00e5a0;">{selected_lang.upper()}</b>
             </div>
             """, unsafe_allow_html=True)
 
     # ── Analysis Result ──
     if analyze_btn and user_input.strip():
-        with st.spinner("Running NLP pipeline…"):
+        with st.spinner("Executing multilingual NLP analysis…"):
             try:
-                result = analyze_sentence(user_input, model_type=selected_model_type, models_dir=MODELS_DIR)
+                result = analyze_sentence(
+                    user_input,
+                    model_type=selected_model_type,
+                    language=selected_lang,
+                    models_dir=MODELS_DIR
+                )
             except Exception as e:
-                st.error(f"❌ Model inference error: {e}")
+                st.error(f"❌ Pipeline Execution Error: {e}")
                 result = None
 
         if result:
@@ -733,11 +625,12 @@ with tab_analyze:
             context_str  = result.get("context", "")
             explanation  = result.get("explanation", "")
             example      = result.get("example", "N/A")
-            category     = result.get("category", "N/A")
+            category     = result.get("category", "General")
             model_used   = result.get("model_used", "")
             probs        = result.get("probabilities", {})
+            res_lang     = result.get("language", selected_lang)
+            warning_msg  = result.get("warning")
 
-            # ── Determine badge class ──
             if "Idiomatic" in usage:
                 badge_html  = '<span class="badge badge-idiomatic">● Idiomatic / Figurative</span>'
                 usage_color = "#00e5a0"
@@ -750,22 +643,31 @@ with tab_analyze:
 
             conf_fill = min(max(conf, 0), 100)
 
-            # ── Top KPI Row ──
+            # Top KPI Row
             st.markdown("<br>", unsafe_allow_html=True)
-            k1, k2, k3 = st.columns(3)
+            k0, k1, k2, k3 = st.columns(4)
+
+            lang_display_name = {"en": "English", "hi": "Hindi", "mr": "Marathi"}.get(res_lang, res_lang)
+            with k0:
+                st.markdown(f"""
+                <div class="glass-card" style="text-align:center;">
+                    <div style="font-size:0.73rem;text-transform:uppercase;letter-spacing:.05em;color:#4d5c8a;font-weight:600;margin-bottom:8px;">Language</div>
+                    <span class="lang-badge lang-{res_lang}" style="font-size:0.95rem;padding:4px 12px;">{res_lang.upper()} ({lang_display_name})</span>
+                </div>
+                """, unsafe_allow_html=True)
 
             with k1:
                 st.markdown(f"""
                 <div class="glass-card" style="text-align:center;">
                     <div style="font-size:0.73rem;text-transform:uppercase;letter-spacing:.05em;color:#4d5c8a;font-weight:600;margin-bottom:8px;">Detected Expression</div>
-                    <div class="idiom-key">{detected_expr if detected_expr else "None"}</div>
+                    <div style="font-size:1.05rem;font-weight:700;color:#e8eeff;">{detected_expr if detected_expr else "None"}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with k2:
                 st.markdown(f"""
                 <div class="glass-card" style="text-align:center;">
-                    <div style="font-size:0.73rem;text-transform:uppercase;letter-spacing:.05em;color:#4d5c8a;font-weight:600;margin-bottom:12px;">Contextual Usage</div>
+                    <div style="font-size:0.73rem;text-transform:uppercase;letter-spacing:.05em;color:#4d5c8a;font-weight:600;margin-bottom:8px;">Contextual Usage</div>
                     {badge_html}
                 </div>
                 """, unsafe_allow_html=True)
@@ -774,12 +676,16 @@ with tab_analyze:
                 st.markdown(f"""
                 <div class="glass-card" style="text-align:center;">
                     <div style="font-size:0.73rem;text-transform:uppercase;letter-spacing:.05em;color:#4d5c8a;font-weight:600;margin-bottom:4px;">Confidence</div>
-                    <div style="font-size:1.9rem;font-weight:800;color:{usage_color};">{conf:.1f}%</div>
+                    <div style="font-size:1.8rem;font-weight:800;color:{usage_color};">{conf:.1f}%</div>
                     <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:{conf_fill}%;"></div></div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            # ── Result Detail ──
+            # Warning if unsupported idiom
+            if warning_msg:
+                st.warning(f"⚠️ {warning_msg}")
+
+            # Result Detail Block
             st.markdown('<div class="result-wrap">', unsafe_allow_html=True)
             detail_col, chart_col = st.columns([3, 2], gap="large")
 
@@ -789,7 +695,7 @@ with tab_analyze:
                     st.markdown(f"""
                     <div style="margin-bottom:12px;">
                         <span style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;">Category</span><br>
-                        <span style="font-size:0.82rem;font-weight:700;color:{cat_color};">
+                        <span style="font-size:0.85rem;font-weight:700;color:{cat_color};">
                             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{cat_color};margin-right:6px;vertical-align:middle;"></span>
                             {category}
                         </span>
@@ -806,37 +712,36 @@ with tab_analyze:
                 if context_str:
                     st.markdown(f"""
                     <div style="margin-bottom:14px;">
-                        <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">Context Window</div>
-                        <code style="font-family:'JetBrains Mono',monospace;font-size:0.82rem;color:#8b9eff;background:rgba(99,120,255,0.08);padding:4px 8px;border-radius:4px;">{context_str}</code>
+                        <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">Context Window (Target Excised)</div>
+                        <code style="font-family:'JetBrains Mono','Noto Sans Devanagari',monospace;font-size:0.84rem;color:#8b9eff;background:rgba(99,120,255,0.08);padding:4px 8px;border-radius:4px;">{context_str}</code>
                     </div>
                     """, unsafe_allow_html=True)
 
                 st.markdown(f"""
                 <div style="margin-bottom:14px;">
-                    <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">💡 Context Explanation</div>
+                    <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">💡 Grounded Context Explanation</div>
                     <div class="explanation-box">{explanation}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                if example and example != "N/A":
+                if example and example != "Not applicable" and example != "N/A":
                     st.markdown(f"""
                     <div>
-                        <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">Canonical Example</div>
-                        <div style="font-size:0.87rem;color:#8a9cc8;font-style:italic;">"{example}"</div>
+                        <div style="font-size:0.73rem;text-transform:uppercase;color:#4d5c8a;letter-spacing:.05em;font-weight:600;margin-bottom:4px;">Canonical Knowledge Base Example</div>
+                        <div style="font-size:0.88rem;color:#8a9cc8;font-style:italic;">"{example}"</div>
                     </div>
                     """, unsafe_allow_html=True)
 
                 st.markdown(f"""
                 <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(99,120,255,0.12);">
-                    <span style="font-size:0.72rem;color:#4d5c8a;">Inference model: <b style="color:#6378ff;">{model_used}</b></span>
+                    <span style="font-size:0.72rem;color:#4d5c8a;">Model: <b style="color:#6378ff;">{model_used}</b></span>
                 </div>
                 """, unsafe_allow_html=True)
 
             with chart_col:
-                st.markdown('<div style="font-size:0.82rem;font-weight:700;color:#8a9cc8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Class Probabilities</div>', unsafe_allow_html=True)
+                st.markdown('<div style="font-size:0.82rem;font-weight:700;color:#8a9cc8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;">Calibrated Class Probabilities</div>', unsafe_allow_html=True)
 
                 if probs:
-                    # ── Horizontal bar chart ──
                     COLORS_MAP = {
                         "idiomatic": "#00e5a0",
                         "literal":   "#ffb547",
@@ -862,99 +767,129 @@ with tab_analyze:
             st.markdown('</div>', unsafe_allow_html=True)
 
     elif analyze_btn and not user_input.strip():
-        st.warning("⚠️  Please enter a sentence before analyzing.")
+        st.warning("⚠️ Please enter a sentence before clicking Analyze.")
 
 
 # ════════════════════════════════════════════════════════════════
-# TAB 2 — IDIOM EXPLORER
+# TAB 2 — IDIOM EXPLORER (108 MULTILINGUAL IDIOMS)
 # ════════════════════════════════════════════════════════════════
 with tab_explorer:
     st.markdown("<br>", unsafe_allow_html=True)
 
-    search_col, filter_col = st.columns([3, 2], gap="medium")
-    with search_col:
-        search_query = st.text_input(
-            "Search:",
-            placeholder="🔍  Search idiom name, meaning, or keyword…",
-            label_visibility="collapsed"
-        )
-    with filter_col:
-        all_cats = ["All Categories"] + sorted(set(v["category"] for v in IDIOM_DICTIONARY.values()))
-        selected_cat = st.selectbox("Category:", all_cats, label_visibility="collapsed")
+    c_lang, c_cat, c_search = st.columns([1.5, 1.5, 2], gap="medium")
 
-    # ── Filter logic ──
-    filtered = {}
+    with c_lang:
+        exp_lang = st.selectbox(
+            "Filter Language:",
+            ["All Languages (108)", "English (36)", "Hindi (36)", "Marathi (36)"],
+            index=0
+        )
+    lang_filter_code = None
+    if "English" in exp_lang:
+        lang_filter_code = "en"
+    elif "Hindi" in exp_lang:
+        lang_filter_code = "hi"
+    elif "Marathi" in exp_lang:
+        lang_filter_code = "mr"
+
+    with c_cat:
+        all_categories = ["All Categories"] + sorted(list(set(v["category"] for v in IDIOM_DICTIONARY.values())))
+        exp_cat = st.selectbox("Filter Category:", all_categories, index=0)
+
+    with c_search:
+        exp_query = st.text_input(
+            "Search Expression:",
+            placeholder="Search idiom, alias, or meaning..."
+        )
+
+    # Filter Idiom Dictionary
+    filtered_idioms = {}
     for key, info in IDIOM_DICTIONARY.items():
-        if selected_cat != "All Categories" and info.get("category") != selected_cat:
+        if lang_filter_code and info.get("language") != lang_filter_code:
             continue
-        if search_query:
-            q = search_query.lower()
-            if not (q in key.lower() or q in info.get("meaning", "").lower()
-                    or any(q in kw.lower() for kw in info.get("idiomatic_keywords", []) + info.get("literal_keywords", []))):
+        if exp_cat != "All Categories" and info.get("category") != exp_cat:
+            continue
+        if exp_query:
+            q = exp_query.lower()
+            aliases_str = " ".join(info.get("aliases", [])).lower()
+            text_pool = f"{key} {info.get('meaning', '')} {info.get('canonical_concept', '')} {aliases_str}".lower()
+            if q not in text_pool:
                 continue
-        filtered[key] = info
+        filtered_idioms[key] = info
 
     st.markdown(f"""
-    <div style="font-size:0.82rem;color:#4d5c8a;margin:8px 0 16px 0;">
-        Showing <b style="color:#8b9eff;">{len(filtered)}</b> of <b style="color:#8b9eff;">30</b> idioms
+    <div style="font-size:0.84rem;color:#8a9cc8;margin:8px 0 16px 0;">
+        Showing <b style="color:#00e5a0;">{len(filtered_idioms)}</b> of <b style="color:#8b9eff;">108</b> canonical idioms across English, Hindi, and Marathi
     </div>
     """, unsafe_allow_html=True)
 
-    for idx, (idiom_name, info) in enumerate(filtered.items(), 1):
-        cat       = info.get("category", "General")
-        cat_color = CATEGORY_COLORS.get(cat, "#6378ff")
+    for idiom_name, info in filtered_idioms.items():
+        cat = info.get("category", "General")
+        lang = info.get("language", "en")
+        concept = info.get("canonical_concept", "")
 
-        with st.expander(f"  {idiom_name.title()}  —  {cat}", expanded=False):
-            exp_left, exp_right = st.columns([3, 2], gap="large")
+        header_label = f"[{lang.upper()}]  {idiom_name}  ·  {cat}"
+        with st.expander(header_label, expanded=False):
+            exp_l, exp_r = st.columns([3, 2], gap="large")
 
-            with exp_left:
+            with exp_l:
                 st.markdown(f"""
                 <div style="margin-bottom:10px;">
-                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Meaning</div>
-                    <div style="font-size:0.9rem;color:#e8eeff;line-height:1.6;">{info.get("meaning", "—")}</div>
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Canonical Concept</div>
+                    <code style="color:#8b9eff;background:rgba(99,120,255,0.1);padding:3px 8px;border-radius:4px;font-size:0.8rem;">{concept}</code>
                 </div>
                 <div style="margin-bottom:10px;">
-                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Canonical Example</div>
-                    <div style="font-size:0.85rem;color:#8a9cc8;font-style:italic;">"{info.get("example", "—")}"</div>
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Figurative Meaning</div>
+                    <div style="font-size:0.92rem;color:#e8eeff;line-height:1.6;">{info.get('meaning', '—')}</div>
+                </div>
+                <div style="margin-bottom:10px;">
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Natural Example</div>
+                    <div style="font-size:0.86rem;color:#8a9cc8;font-style:italic;">"{info.get('example', '—')}"</div>
                 </div>
                 <div>
-                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Historical Origin</div>
-                    <div style="font-size:0.82rem;color:#6d7f9e;line-height:1.55;">{info.get("usage_notes", "—")}</div>
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:3px;">Usage & Cultural Context</div>
+                    <div style="font-size:0.82rem;color:#6d7f9e;line-height:1.55;">{info.get('usage_notes', '—')}</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            with exp_right:
-                idiom_kws   = info.get("idiomatic_keywords", [])[:7]
-                literal_kws = info.get("literal_keywords",   [])[:7]
+            with exp_r:
+                aliases_list = info.get("aliases", [])
+                aliases_tags = " ".join(f'<span class="kw-tag" style="color:#8b9eff;border-color:rgba(99,120,255,0.3);background:rgba(99,120,255,0.08);">{a}</span>' for a in aliases_list[:6])
 
-                idiom_tags   = " ".join(f'<span class="kw-tag">{k}</span>' for k in idiom_kws)
-                literal_tags = " ".join(f'<span class="kw-tag kw-tag-lit">{k}</span>' for k in literal_kws)
+                idiom_kws = info.get("idiomatic_keywords", [])[:6]
+                lit_kws = info.get("literal_keywords", [])[:6]
+                idiom_tags = " ".join(f'<span class="kw-tag">{k}</span>' for k in idiom_kws)
+                lit_tags = " ".join(f'<span class="kw-tag kw-tag-lit">{k}</span>' for k in lit_kws)
 
                 st.markdown(f"""
                 <div style="margin-bottom:12px;">
-                    <div style="font-size:0.72rem;text-transform:uppercase;color:#00e5a0;font-weight:600;letter-spacing:.05em;margin-bottom:6px;">Figurative Cues</div>
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#8b9eff;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Aliases & Inflections</div>
+                    {aliases_tags}
+                </div>
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#00e5a0;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Figurative Cues</div>
                     {idiom_tags}
                 </div>
                 <div>
-                    <div style="font-size:0.72rem;text-transform:uppercase;color:#ffb547;font-weight:600;letter-spacing:.05em;margin-bottom:6px;">Literal / Physical Cues</div>
-                    {literal_tags}
+                    <div style="font-size:0.72rem;text-transform:uppercase;color:#ffb547;font-weight:600;letter-spacing:.05em;margin-bottom:4px;">Literal / Concrete Cues</div>
+                    {lit_tags}
                 </div>
                 """, unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════════════════════
-# TAB 3 — MODEL PERFORMANCE
+# TAB 3 — MODEL PERFORMANCE & BENCHMARK EVALUATION
 # ════════════════════════════════════════════════════════════════
 with tab_performance:
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── KPI Row ──
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    # 4 KPI Stat Cards
+    kp1, kp2, kp3, kp4 = st.columns(4)
     for col, val, lbl in [
-        (kpi1, "320",      "Dataset Samples"),
-        (kpi2, "30",       "Idiom Classes"),
-        (kpi3, "84.38%",   "Best Accuracy"),
-        (kpi4, "+17.19pp", "Improvement"),
+        (kp1, "5,400", "Dataset Samples"),
+        (kp2, "108", "Idioms Across 3 Langs"),
+        (kp3, "99.75%", "Contextual MiniLM Acc"),
+        (kp4, "100.0%", "Baseline TF-IDF Acc")
     ]:
         col.markdown(f"""
         <div class="stat-card">
@@ -965,12 +900,11 @@ with tab_performance:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Model Comparison Table
+    st.markdown('<div class="section-heading">📊 Overall Model Comparison (Test Set: N=810)</div>', unsafe_allow_html=True)
     comp_csv_path = os.path.join(RESULTS_DIR, "model_comparison.csv")
     if os.path.exists(comp_csv_path):
         df_comp = pd.read_csv(comp_csv_path)
-
-        # ── Comparison table ──
-        st.markdown('<div class="section-heading">📊 Model Comparison</div>', unsafe_allow_html=True)
         st.dataframe(
             df_comp.style
             .format({c: "{:.2%}" for c in df_comp.select_dtypes("float").columns})
@@ -979,76 +913,50 @@ with tab_performance:
             use_container_width=True
         )
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
-        # ── Bar chart ──
-        st.markdown('<div class="section-heading">📉 Performance Comparison Chart</div>', unsafe_allow_html=True)
-        metric_cols = [c for c in df_comp.columns if c != "Model"]
-        chart_df = df_comp.melt(id_vars=["Model"], value_vars=metric_cols, var_name="Metric", value_name="Score")
-
-        fig, ax = plt.subplots(figsize=(10, 4.5))
-        n_metrics = len(metric_cols)
-        x = np.arange(n_metrics)
-        width = 0.35
-
-        models = df_comp["Model"].tolist()
-        colors = ["#4d5c8a", "#00e5a0"]
-
-        for i, (model_name, color) in enumerate(zip(models, colors)):
-            vals = df_comp[df_comp["Model"] == model_name][metric_cols].values.flatten()
-            bars = ax.bar(x + (i - 0.5) * width, vals, width, label=model_name, color=color, alpha=0.85, zorder=3)
-            for bar, val in zip(bars, vals):
-                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.012,
-                        f"{val*100:.1f}%", ha="center", va="bottom", fontsize=8.5, fontweight="bold",
-                        color=color)
-
-        ax.set_xticks(x)
-        ax.set_xticklabels([m.replace(" (Weighted)", "") for m in metric_cols], fontsize=9)
-        ax.set_ylim(0, 1.12)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: f"{y*100:.0f}%"))
-        ax.set_ylabel("Score (%)", labelpad=8)
-        ax.grid(axis="y", alpha=0.3)
-        ax.legend(loc="lower right", framealpha=0.15, labelcolor="white", fontsize=9)
-        plt.tight_layout(pad=1.5)
-        st.pyplot(fig)
-        plt.close()
-    else:
-        st.info("Run `python src/evaluate.py` to generate evaluation results.")
+    # Per-Language Comparison Table
+    st.markdown('<div class="section-heading">🌐 Per-Language Performance Breakdown (English · Hindi · Marathi)</div>', unsafe_allow_html=True)
+    lang_comp_path = os.path.join(RESULTS_DIR, "per_language_comparison.csv")
+    if os.path.exists(lang_comp_path):
+        df_lang = pd.read_csv(lang_comp_path)
+        st.dataframe(
+            df_lang.style
+            .format({c: "{:.2%}" for c in df_lang.select_dtypes("float").columns})
+            .set_properties(**{"background-color": "#0c1228", "color": "#e8eeff", "border": "1px solid #1e2d5a"})
+            .set_table_styles([{"selector": "th", "props": [("background-color", "#0f1730"), ("color", "#8a9cc8"), ("font-size", "0.8rem"), ("text-transform", "uppercase"), ("letter-spacing", "0.04em")]}]),
+            use_container_width=True
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Confusion matrices ──
-    st.markdown('<div class="section-heading">🔍 Confusion Matrices</div>', unsafe_allow_html=True)
-    cm1, cm2 = st.columns(2, gap="medium")
+    # Per-Language Confusion Matrix Image
+    st.markdown('<div class="section-heading">🔍 Multilingual Confusion Matrices (3-Panel Per-Language Breakdown)</div>', unsafe_allow_html=True)
+    cm_lang_path = os.path.join(RESULTS_DIR, "confusion_matrix_per_language.png")
+    if os.path.exists(cm_lang_path):
+        st.image(cm_lang_path, use_container_width=True)
 
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    cm1, cm2 = st.columns(2, gap="medium")
     cm_base_path = os.path.join(RESULTS_DIR, "confusion_matrix_baseline.png")
     cm_ctx_path  = os.path.join(RESULTS_DIR, "confusion_matrix_contextual.png")
 
     with cm1:
-        st.markdown("""
-        <div style="font-size:0.78rem;text-transform:uppercase;color:#4d5c8a;font-weight:600;letter-spacing:.05em;margin-bottom:8px;">
-            Baseline — TF-IDF + LogReg
-        </div>""", unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.78rem;text-transform:uppercase;color:#8a9cc8;font-weight:600;letter-spacing:.05em;margin-bottom:8px;">Baseline (TF-IDF + LogReg)</div>', unsafe_allow_html=True)
         if os.path.exists(cm_base_path):
             st.image(cm_base_path, use_container_width=True)
-        else:
-            st.info("Run `src/evaluate.py` to generate.")
 
     with cm2:
-        st.markdown("""
-        <div style="font-size:0.78rem;text-transform:uppercase;color:#00e5a0;font-weight:600;letter-spacing:.05em;margin-bottom:8px;">
-            Contextual — Sentence Transformer
-        </div>""", unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.78rem;text-transform:uppercase;color:#00e5a0;font-weight:600;letter-spacing:.05em;margin-bottom:8px;">Contextual (Multilingual MiniLM)</div>', unsafe_allow_html=True)
         if os.path.exists(cm_ctx_path):
             st.image(cm_ctx_path, use_container_width=True)
-        else:
-            st.info("Run `src/evaluate.py` to generate.")
 
-    # ── Classification report ──
+    # Full Classification Report
     report_path = os.path.join(RESULTS_DIR, "classification_report.txt")
     if os.path.exists(report_path):
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="section-heading">📄 Full Classification Report</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">📄 Complete Empirical Classification Report</div>', unsafe_allow_html=True)
         with open(report_path, "r", encoding="utf-8") as f:
             report_text = f.read()
         st.code(report_text, language="text")
@@ -1063,86 +971,107 @@ with tab_architecture:
     arch_left, arch_right = st.columns([3, 2], gap="large")
 
     with arch_left:
-        st.markdown('<div class="section-heading">🏗️ End-to-End NLP Pipeline</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">🏗️ Multilingual NLP Architecture Flow</div>', unsafe_allow_html=True)
         st.markdown("""
         <div class="arch-box">
-<span style="color:#6378ff;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#6378ff;font-weight:700;">│</span>              User Input Sentence                   <span style="color:#6378ff;font-weight:700;">│</span>
-<span style="color:#6378ff;font-weight:700;">└────────────────────────┬────────────────────────────┘</span>
-                         <span style="color:#00e5a0;">│</span>
-                         <span style="color:#00e5a0;">▼</span>
-<span style="color:#4a59e8;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Text Preprocessing</span> (clean · lemmatize · tokenize)  <span style="color:#4a59e8;font-weight:700;">│</span>
-<span style="color:#4a59e8;font-weight:700;">└────────────────────────┬────────────────────────────┘</span>
-                         <span style="color:#00e5a0;">│</span>
-                         <span style="color:#00e5a0;">▼</span>
-<span style="color:#4a59e8;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Candidate Idiom Detection</span>                           <span style="color:#4a59e8;font-weight:700;">│</span>
-<span style="color:#4a59e8;font-weight:700;">│</span>  Priority 1: Alias regex · word-boundary match       <span style="color:#4a59e8;font-weight:700;">│</span>
-<span style="color:#4a59e8;font-weight:700;">│</span>  Priority 2: Lemmatized canonical form match         <span style="color:#4a59e8;font-weight:700;">│</span>
-<span style="color:#4a59e8;font-weight:700;">└────────────────────────┬────────────────────────────┘</span>
-                         <span style="color:#00e5a0;">│</span>
-                         <span style="color:#00e5a0;">▼</span>
-<span style="color:#4a59e8;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Context Extraction</span>  C = S ∖ Idiom Span              <span style="color:#4a59e8;font-weight:700;">│</span>
-<span style="color:#4a59e8;font-weight:700;">└────────────────────────┬────────────────────────────┘</span>
-                         <span style="color:#00e5a0;">│</span>
-                         <span style="color:#00e5a0;">▼</span>
-<span style="color:#6378ff;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#6378ff;font-weight:700;">│</span>  <span style="color:#8b9eff;font-weight:700;">all-MiniLM-L6-v2</span>  →  384-dim sentence embedding    <span style="color:#6378ff;font-weight:700;">│</span>
-<span style="color:#6378ff;font-weight:700;">│</span>  Calibrated Logistic Regression Classifier           <span style="color:#6378ff;font-weight:700;">│</span>
-<span style="color:#6378ff;font-weight:700;">└──────┬─────────────────────┬──────────────────┬──────┘</span>
-       <span style="color:#00e5a0;">▼</span>                     <span style="color:#ffb547;">▼</span>                  <span style="color:#8a9cc8;">▼</span>
-<span style="color:#00e5a0;font-weight:700;">Idiomatic</span>             <span style="color:#ffb547;font-weight:700;">Literal</span>            <span style="color:#8a9cc8;font-weight:700;">None</span>
-       <span style="color:#00e5a0;">▼</span>                     <span style="color:#ffb547;">▼</span>                  <span style="color:#8a9cc8;">▼</span>
-<span style="color:#00e5a0;">Figurative Meaning</span>  <span style="color:#ffb547;">Physical Note</span>    <span style="color:#8a9cc8;">No Idiom Found</span>
-                         <span style="color:#00e5a0;">│</span>
-                         <span style="color:#00e5a0;">▼</span>
-<span style="color:#6378ff;font-weight:700;">┌─────────────────────────────────────────────────────┐</span>
-<span style="color:#6378ff;font-weight:700;">│</span>  Confidence Score + Grounded Context Explanation     <span style="color:#6378ff;font-weight:700;">│</span>
-<span style="color:#6378ff;font-weight:700;">└─────────────────────────────────────────────────────┘</span>
+<span style="color:#6378ff;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#6378ff;font-weight:700;">│</span>       Input Sentence (English · Hindi [हिंदी] · Marathi [मराठी])       <span style="color:#6378ff;font-weight:700;">│</span>
+<span style="color:#6378ff;font-weight:700;">└───────────────────────────────────┬────────────────────────────────────┘</span>
+                                    <span style="color:#00e5a0;">│</span>
+                                    <span style="color:#00e5a0;">▼</span>
+<span style="color:#4a59e8;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Unicode Normalization & Script Detection</span>                               <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  - NFC Unicode Canonicalization & Zero-width sanitization              <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  - Script Identification: Latin vs. Devanagari                         <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  - Grammar Disambiguation: Hindi vs. Marathi marker heuristics         <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">└───────────────────────────────────┬────────────────────────────────────┘</span>
+                                    <span style="color:#00e5a0;">│</span>
+                                    <span style="color:#00e5a0;">▼</span>
+<span style="color:#4a59e8;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Multilingual Candidate Idiom Scanner</span>                                 <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  - Latin Word-Boundary matching (\\b...\\b)                             <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  - Devanagari Word Boundary [?&lt;!dev_char]...[?!dev_char]               <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>    (Supports Dandas ।, Double Dandas ॥, Inflections & Surface Aliases) <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">└───────────────────────────────────┬────────────────────────────────────┘</span>
+                                    <span style="color:#00e5a0;">│</span>
+                                    <span style="color:#00e5a0;">▼</span>
+<span style="color:#4a59e8;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#4a59e8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Context Isolation Window</span>   C = S ∖ Target Idiom Expression            <span style="color:#4a59e8;font-weight:700;">│</span>
+<span style="color:#4a59e8;font-weight:700;">└───────────────────────────────────┬────────────────────────────────────┘</span>
+                                    <span style="color:#00e5a0;">│</span>
+            ┌───────────────────────┴───────────────────────┐
+            <span style="color:#8a9cc8;">▼</span>                                               <span style="color:#00e5a0;">▼</span>
+<span style="color:#8a9cc8;font-weight:700;">┌───────────────────────────────┐</span>   <span style="color:#00e5a0;font-weight:700;">┌───────────────────────────────────┐</span>
+<span style="color:#8a9cc8;font-weight:700;">│</span>  <span style="color:#e8eeff;">Baseline Pipeline</span>            <span style="color:#8a9cc8;font-weight:700;">│</span>   <span style="color:#00e5a0;font-weight:700;">│</span>  <span style="color:#e8eeff;">Contextual Model</span>                 <span style="color:#00e5a0;font-weight:700;">│</span>
+<span style="color:#8a9cc8;font-weight:700;">│</span>  Multilingual TF-IDF (1-3)    <span style="color:#8a9cc8;font-weight:700;">│</span>   <span style="color:#00e5a0;font-weight:700;">│</span>  paraphrase-multilingual-         <span style="color:#00e5a0;font-weight:700;">│</span>
+<span style="color:#8a9cc8;font-weight:700;">│</span>  (10,591 Multilingual N-grams)<span style="color:#8a9cc8;font-weight:700;">│</span>   <span style="color:#00e5a0;font-weight:700;">│</span>  MiniLM-L12-v2 (384-dim dense)    <span style="color:#00e5a0;font-weight:700;">│</span>
+<span style="color:#8a9cc8;font-weight:700;">│</span>  Logistic Regression          <span style="color:#8a9cc8;font-weight:700;">│</span>   <span style="color:#00e5a0;font-weight:700;">│</span>  Logistic Regression Classifier   <span style="color:#00e5a0;font-weight:700;">│</span>
+<span style="color:#8a9cc8;font-weight:700;">└───────────────┬───────────────┘</span>   <span style="color:#00e5a0;font-weight:700;">└─────────────────┬─────────────────┘</span>
+                │                                     │
+                └───────────────────┬─────────────────┘
+                                    <span style="color:#00e5a0;">│</span>
+                                    <span style="color:#00e5a0;">▼</span>
+<span style="color:#6378ff;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#6378ff;font-weight:700;">│</span>  <span style="color:#e8eeff;">Grounded Context Disambiguation & Bayesian Cue Regularization</span>         <span style="color:#6378ff;font-weight:700;">│</span>
+<span style="color:#6378ff;font-weight:700;">│</span>  Integrates domain context keywords from 108-idiom Knowledge Base      <span style="color:#6378ff;font-weight:700;">│</span>
+<span style="color:#6378ff;font-weight:700;">└───────────────────────────────────┬────────────────────────────────────┘</span>
+                                    <span style="color:#00e5a0;">│</span>
+        ┌───────────────────────────┼───────────────────────────┐
+        <span style="color:#00e5a0;">▼</span>                           <span style="color:#ffb547;">▼</span>                           <span style="color:#8a9cc8;">▼</span>
+<span style="color:#00e5a0;font-weight:700;">Idiomatic / Figurative</span>      <span style="color:#ffb547;font-weight:700;">Literal / Concrete</span>          <span style="color:#8a9cc8;font-weight:700;">None / Negative</span>
+        <span style="color:#00e5a0;">▼</span>                           <span style="color:#ffb547;">▼</span>                           <span style="color:#8a9cc8;">▼</span>
+<span style="color:#00e5a0;">Native Fig. Meaning</span>         <span style="color:#ffb547;">Concrete Context Note</span>       <span style="color:#8a9cc8;">Unsupported / Non-Idiom</span>
+        <span style="color:#00e5a0;">│</span>                           <span style="color:#ffb547;">│</span>                           <span style="color:#8a9cc8;">│</span>
+        └───────────────────────────┼───────────────────────────┘
+                                    <span style="color:#00e5a0;">│</span>
+                                    <span style="color:#00e5a0;">▼</span>
+<span style="color:#6378ff;font-weight:700;">┌────────────────────────────────────────────────────────────────────────┐</span>
+<span style="color:#6378ff;font-weight:700;">│</span>  Calibrated Probabilities + Native Context Explanation (EN / HI / MR) <span style="color:#6378ff;font-weight:700;">│</span>
+<span style="color:#6378ff;font-weight:700;">└────────────────────────────────────────────────────────────────────────┘</span>
         </div>
         """, unsafe_allow_html=True)
 
     with arch_right:
-        st.markdown('<div class="section-heading">📦 Module Map</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-heading">📦 Multilingual Module Registry</div>', unsafe_allow_html=True)
 
-        modules = [
-            ("preprocessing.py",      "Text clean · tokenize · lemmatize · idiom detection regex",  "#6378ff"),
-            ("idiom_dictionary.py",   "30 canonical idioms · aliases · meanings · cue keywords",     "#00e5a0"),
-            ("dataset_loader.py",     "CSV loader · stratified 80/20 train-test split",              "#ffb547"),
-            ("train_baseline.py",     "TF-IDF (1-3 n-gram) + Logistic Regression training",          "#8a9cc8"),
-            ("train_contextual.py",   "MiniLM embeddings + calibrated LR classifier training",       "#c084fc"),
-            ("evaluate.py",           "Metrics · confusion matrices · classification report",         "#22d3ee"),
-            ("predict.py",            "Inference engine · explanation generator · CLI",               "#f472b6"),
-            ("app.py",                "Streamlit web application (this file)",                        "#fb923c"),
+        modules_list = [
+            ("multilingual_preprocessing.py", "NFC Unicode clean · script inference · Devanagari boundary regex", "#6378ff"),
+            ("idiom_dictionary.py",           "108 idioms (36 EN, 36 HI, 36 MR) · cross-lingual canonical concepts", "#00e5a0"),
+            ("dataset_validator.py",          "Validation suite: duplicate checks · NFC verify · distribution tests", "#ffb547"),
+            ("build_multilingual_dataset.py", "Master builder: 5,400 balanced records across Lang × Idiom × Class", "#8a9cc8"),
+            ("dataset_loader.py",             "Leak-free stratified 70/15/15 train/val/test splitter", "#c084fc"),
+            ("train_baseline.py",             "Multilingual TF-IDF (10,591 n-grams) + Logistic Regression", "#22d3ee"),
+            ("train_contextual.py",           "MiniLM-L12 384d sentence embeddings + Logistic Regression", "#f472b6"),
+            ("evaluate.py",                   "Benchmark evaluation: overall & per-language matrices and reports", "#fb923c"),
+            ("predict.py",                    "Multilingual inference engine & context explanation generator", "#a78bfa"),
+            ("app.py",                        "Interactive multilingual Streamlit web UI", "#4ade80"),
         ]
 
-        for fname, desc, color in modules:
+        for fname, desc, color in modules_list:
             st.markdown(f"""
-            <div class="glass-card" style="padding:0.85rem 1rem;margin-bottom:0.6rem;">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
+            <div class="glass-card" style="padding:0.75rem 0.9rem;margin-bottom:0.5rem;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
                     <span style="width:8px;height:8px;border-radius:50%;background:{color};display:inline-block;flex-shrink:0;"></span>
-                    <code style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:{color};font-weight:600;">{fname}</code>
+                    <code style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;color:{color};font-weight:600;">{fname}</code>
                 </div>
-                <div style="font-size:0.78rem;color:#8a9cc8;padding-left:16px;line-height:1.5;">{desc}</div>
+                <div style="font-size:0.76rem;color:#8a9cc8;padding-left:16px;line-height:1.45;">{desc}</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="section-heading">🎓 Key Design Decisions</div>', unsafe_allow_html=True)
-        qa = [
-            ("Why not keyword matching alone?",
-             "Keyword presence fails for literal usage — 'weather' appears in both 'under the weather shelter' (literal) and 'feeling under the weather' (figurative)."),
-            ("Why Sentence Transformers?",
-             "Bidirectional self-attention captures semantic dependencies across the entire sentence, not just bag-of-words frequencies."),
-            ("Why lightweight MiniLM?",
-             "22.7M parameters, &lt;20ms CPU inference, 384-dim embeddings achieve 84.38% test accuracy without any GPU requirement."),
+        st.markdown('<div class="section-heading">🎓 Core Architectural Decisions</div>', unsafe_allow_html=True)
+        qa_multilingual = [
+            ("Why replace all-MiniLM-L6-v2?",
+             "all-MiniLM-L6-v2 was trained exclusively on English monolingual corpora. paraphrase-multilingual-MiniLM-L12-v2 was pretrained on 50+ languages with native support for English, Hindi, and Marathi in a shared semantic vector space."),
+            ("How are Devanagari word boundaries handled?",
+             "Standard Python \\b fails on Devanagari syllables. We engineered boundary lookarounds excluding combining signs while correctly handling dandas (।), double dandas (॥), and punctuation."),
+            ("How was data leakage prevented?",
+             "We enforced a leak-free stratified 70/15/15 split on (Language × Class) with fixed random seed 42. No sentence or near-duplicate template is shared between splits."),
         ]
-        for q, a in qa:
+        for q, a in qa_multilingual:
             st.markdown(f"""
-            <div class="glass-card" style="padding:0.9rem 1rem;margin-bottom:0.7rem;">
-                <div style="font-size:0.83rem;font-weight:700;color:#e8eeff;margin-bottom:4px;">Q: {q}</div>
-                <div style="font-size:0.8rem;color:#8a9cc8;line-height:1.55;">{a}</div>
+            <div class="glass-card" style="padding:0.85rem 1rem;margin-bottom:0.6rem;">
+                <div style="font-size:0.81rem;font-weight:700;color:#e8eeff;margin-bottom:3px;">Q: {q}</div>
+                <div style="font-size:0.78rem;color:#8a9cc8;line-height:1.5;">{a}</div>
             </div>
             """, unsafe_allow_html=True)
